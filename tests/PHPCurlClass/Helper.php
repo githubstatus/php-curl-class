@@ -2,12 +2,12 @@
 
 namespace Helper;
 
-use Curl\Curl;
+use \Curl\Curl;
 
 class Test
 {
     const TEST_URL = 'http://127.0.0.1:8000/';
-    const ERROR_URL = 'https://1.2.3.4/';
+    const ERROR_URL = 'http://1.2.3.4/';
 
     public function __construct()
     {
@@ -16,14 +16,16 @@ class Test
         $this->curl->setOpt(CURLOPT_SSL_VERIFYHOST, false);
     }
 
-    public function server($test, $request_method, $query_parameters = array(), $data = array())
+    public function server($test, $request_method, $arg1 = null, $arg2 = null)
     {
         $this->curl->setHeader('X-DEBUG-TEST', $test);
         $request_method = strtolower($request_method);
-        if (is_array($data) && empty($data)) {
-            $this->curl->$request_method(self::TEST_URL, $query_parameters);
+        if ($arg1 !== null && $arg2 !== null) {
+            $this->curl->$request_method(self::TEST_URL, $arg1, $arg2);
+        } elseif ($arg1 !== null) {
+            $this->curl->$request_method(self::TEST_URL, $arg1);
         } else {
-            $this->curl->$request_method(self::TEST_URL, $query_parameters, $data);
+            $this->curl->$request_method(self::TEST_URL);
         }
         return $this->curl->response;
     }
@@ -33,20 +35,20 @@ class Test
      * previously forced method might be inherited.
      * Especially, POSTs must be configured to not perform post-redirect-get.
      */
-    private function chainedRequest($request_method)
+    private function chainedRequest($request_method, $data)
     {
         if ($request_method === 'POST') {
-            $this->server('request_method', $request_method, array(), true);
+            $this->server('request_method', $request_method, $data, true);
         } else {
-            $this->server('request_method', $request_method);
+            $this->server('request_method', $request_method, $data);
         }
         \PHPUnit\Framework\Assert::assertEquals($request_method, $this->curl->responseHeaders['X-REQUEST-METHOD']);
     }
 
-    public function chainRequests($first, $second)
+    public function chainRequests($first, $second, $data = array())
     {
-        $this->chainedRequest($first);
-        $this->chainedRequest($second);
+        $this->chainedRequest($first, $data);
+        $this->chainedRequest($second, $data);
     }
 }
 

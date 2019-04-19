@@ -3,7 +3,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use \Curl\MultiCurl;
 
-$server_count = 10;
+$server_count = 5;
 $urls = array();
 $port = 8000;
 for ($i = 0; $i < $server_count; $i++) {
@@ -12,6 +12,7 @@ for ($i = 0; $i < $server_count; $i++) {
 }
 
 $multi_curl = new MultiCurl();
+$multi_curl->setConcurrency(30);
 
 $success = 0;
 $error = 0;

@@ -601,8 +601,16 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
             \PHPUnit\Framework\Assert::assertTrue($instance->error);
             \PHPUnit\Framework\Assert::assertTrue($instance->curlError);
             \PHPUnit\Framework\Assert::assertFalse($instance->httpError);
-            \PHPUnit\Framework\Assert::assertEquals(CURLE_OPERATION_TIMEOUTED, $instance->errorCode);
-            \PHPUnit\Framework\Assert::assertEquals(CURLE_OPERATION_TIMEOUTED, $instance->curlErrorCode);
+            $possible_errors = array(
+                CURLE_SEND_ERROR, CURLE_OPERATION_TIMEOUTED, CURLE_COULDNT_CONNECT, CURLE_GOT_NOTHING);
+            \PHPUnit\Framework\Assert::assertTrue(
+                in_array($instance->errorCode, $possible_errors, true),
+                'errorCode: ' . $instance->errorCode
+            );
+            \PHPUnit\Framework\Assert::assertTrue(
+                in_array($instance->curlErrorCode, $possible_errors, true),
+                'curlErrorCode: ' . $instance->curlErrorCode
+            );
         });
 
         $multi_curl->addDelete(Test::ERROR_URL);
@@ -2070,12 +2078,101 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals('yummy', $get_2->responseCookies['mycookie']);
     }
 
+    public function testJsonRequest()
+    {
+        foreach (array(
+                array(
+                    array(
+                        'key' => 'value',
+                    ),
+                    '{"key":"value"}',
+                ),
+                array(
+                    array(
+                        'key' => 'value',
+                        'strings' => array(
+                            'a',
+                            'b',
+                            'c',
+                        ),
+                    ),
+                    '{"key":"value","strings":["a","b","c"]}',
+                ),
+            ) as $test) {
+            list($data, $expected_response) = $test;
+
+            $multi_curl = new MultiCurl();
+            $multi_curl->setHeader('X-DEBUG-TEST', 'post_json');
+            $multi_curl->complete(function ($instance) use ($expected_response, $data) {
+                \PHPUnit\Framework\Assert::assertEquals($expected_response, $instance->response);
+            });
+            $multi_curl->addPost(Test::TEST_URL, json_encode($data));
+            $multi_curl->start();
+
+            foreach (array(
+                'Content-Type',
+                'content-type',
+                'CONTENT-TYPE') as $key) {
+                foreach (array(
+                    'APPLICATION/JSON',
+                    'APPLICATION/JSON; CHARSET=UTF-8',
+                    'APPLICATION/JSON;CHARSET=UTF-8',
+                    'application/json',
+                    'application/json; charset=utf-8',
+                    'application/json;charset=UTF-8',
+                    ) as $value) {
+                    $multi_curl = new MultiCurl();
+                    $multi_curl->setHeader('X-DEBUG-TEST', 'post_json');
+                    $multi_curl->setHeader($key, $value);
+                    $multi_curl->complete(function ($instance) use ($expected_response, $data) {
+                        \PHPUnit\Framework\Assert::assertEquals($expected_response, $instance->response);
+                    });
+                    $multi_curl->addPost(Test::TEST_URL, json_encode($data));
+                    $multi_curl->start();
+
+                    $multi_curl = new MultiCurl();
+                    $multi_curl->setHeader('X-DEBUG-TEST', 'post_json');
+                    $multi_curl->setHeader($key, $value);
+                    $multi_curl->complete(function ($instance) use ($expected_response, $data) {
+                        \PHPUnit\Framework\Assert::assertEquals($expected_response, $instance->response);
+                    });
+                    $multi_curl->addPost(Test::TEST_URL, $data);
+                    $multi_curl->start();
+                }
+            }
+        }
+    }
+
     public function testJsonDecoder()
     {
         $data = array(
             'key' => 'Content-Type',
             'value' => 'application/json',
         );
+
+        $multi_curl = new MultiCurl();
+        $multi_curl->setHeader('X-DEBUG-TEST', 'json_response');
+        $multi_curl->setJsonDecoder(function ($response) {
+            return 'first decoder';
+        });
+
+        $post_1 = $multi_curl->addPost(Test::TEST_URL, $data);
+        $post_1->complete(function ($instance) {
+            \PHPUnit\Framework\Assert::assertEquals('first decoder', $instance->response);
+        });
+
+        $post_2 = $multi_curl->addPost(Test::TEST_URL, $data);
+        $post_2->setJsonDecoder(function ($response) {
+            return 'second decoder';
+        });
+        $post_2->complete(function ($instance) {
+            \PHPUnit\Framework\Assert::assertEquals('second decoder', $instance->response);
+        });
+
+        $multi_curl->start();
+        $this->assertEquals('first decoder', $post_1->response);
+        $this->assertEquals('second decoder', $post_2->response);
+
 
         $multi_curl = new MultiCurl();
         $multi_curl->setHeader('X-DEBUG-TEST', 'json_response');
@@ -2152,6 +2249,30 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
 
     public function testXMLDecoder()
     {
+        $multi_curl = new MultiCurl();
+        $multi_curl->setHeader('X-DEBUG-TEST', 'xml_with_cdata_response');
+        $multi_curl->setXmlDecoder(function ($response) {
+            return 'first decoder';
+        });
+
+        $post_1 = $multi_curl->addPost(Test::TEST_URL);
+        $post_1->complete(function ($instance) {
+            \PHPUnit\Framework\Assert::assertEquals('first decoder', $instance->response);
+        });
+
+        $post_2 = $multi_curl->addPost(Test::TEST_URL);
+        $post_2->setXmlDecoder(function ($response) {
+            return 'second decoder';
+        });
+        $post_2->complete(function ($instance) {
+            \PHPUnit\Framework\Assert::assertEquals('second decoder', $instance->response);
+        });
+
+        $multi_curl->start();
+        $this->assertEquals('first decoder', $post_1->response);
+        $this->assertEquals('second decoder', $post_2->response);
+
+
         $multi_curl = new MultiCurl();
         $multi_curl->setHeader('X-DEBUG-TEST', 'xml_with_cdata_response');
 
@@ -2290,7 +2411,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'delete_with_body');
         $multi_curl->addDelete($data, array('wibble' => 'wubble'))->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals(
                 '{"get":{"key":"value"},"delete":{"wibble":"wubble"}}',
                 $instance->rawResponse
@@ -2301,7 +2421,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'get');
         $multi_curl->addDelete($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('key=value', $instance->response);
         });
         $multi_curl->start();
@@ -2309,7 +2428,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'get');
         $multi_curl->addGet($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('key=value', $instance->response);
         });
         $multi_curl->start();
@@ -2317,7 +2435,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'get');
         $multi_curl->addHead($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals(
                 'HEAD /?key=value HTTP/1.1',
                 $instance->requestHeaders['Request-Line']
@@ -2328,7 +2445,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'get');
         $multi_curl->addOptions($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('key=value', $instance->response);
         });
         $multi_curl->start();
@@ -2336,7 +2452,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'request_method');
         $multi_curl->addPatch($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('PATCH', $instance->response);
         });
         $multi_curl->start();
@@ -2344,7 +2459,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'post');
         $multi_curl->addPost($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('key=value', $instance->response);
         });
         $multi_curl->start();
@@ -2352,7 +2466,6 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
         $multi_curl = new MultiCurl(Test::TEST_URL);
         $multi_curl->setHeader('X-DEBUG-TEST', 'put');
         $multi_curl->addPut($data)->complete(function ($instance) {
-            \PHPUnit\Framework\Assert::assertEquals(Test::TEST_URL, $instance->baseUrl);
             \PHPUnit\Framework\Assert::assertEquals('key=value', $instance->response);
         });
         $multi_curl->start();
@@ -2746,5 +2859,34 @@ class MultiCurlTest extends \PHPUnit\Framework\TestCase
             $this->assertEquals($expect_attempts, $instance->attempts);
             $this->assertEquals($expect_retries, $instance->retries);
         }
+    }
+
+    public function testPostDataEmptyJson()
+    {
+        $multi_curl = new MultiCurl();
+        $multi_curl->setHeader('X-DEBUG-TEST', 'post_json');
+        $multi_curl->setHeader('Content-Type', 'application/json');
+        $multi_curl->addPost(Test::TEST_URL);
+        $post_complete_called = false;
+        $multi_curl->complete(function ($instance) use (&$post_complete_called) {
+            \PHPUnit\Framework\Assert::assertEquals('', $instance->response);
+            \PHPUnit\Framework\Assert::assertEquals('', $instance->getOpt(CURLOPT_POSTFIELDS));
+            $post_complete_called = true;
+        });
+        $multi_curl->start();
+        $this->assertTrue($post_complete_called);
+    }
+
+    public function testProxySettings()
+    {
+        $multi_curl = new MultiCurl();
+        $multi_curl->setProxy('proxy.example.com', '1080', 'username', 'password');
+
+        $this->assertEquals('proxy.example.com', $multi_curl->getOpt(CURLOPT_PROXY));
+        $this->assertEquals('1080', $multi_curl->getOpt(CURLOPT_PROXYPORT));
+        $this->assertEquals('username:password', $multi_curl->getOpt(CURLOPT_PROXYUSERPWD));
+
+        $multi_curl->unsetProxy();
+        $this->assertNull($multi_curl->getOpt(CURLOPT_PROXY));
     }
 }

@@ -2,9 +2,10 @@
 
 namespace CurlTest;
 
-use \Curl\Curl;
 use \Curl\CaseInsensitiveArray;
+use \Curl\Curl;
 use \Helper\Test;
+use \Helper\User;
 
 class CurlTest extends \PHPUnit\Framework\TestCase
 {
@@ -12,6 +13,7 @@ class CurlTest extends \PHPUnit\Framework\TestCase
     {
         $this->assertTrue(extension_loaded('curl'));
         $this->assertTrue(extension_loaded('gd'));
+        $this->assertTrue(extension_loaded('mbstring'));
     }
 
     public function testArrayAssociative()
@@ -105,43 +107,36 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         // curl -v --get --request GET "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'GET', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL . '?' . http_build_query($data), $test->curl->url);
 
         // curl -v --request POST "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'POST', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL, $test->curl->url);
 
         // curl -v --request PUT "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'PUT', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL, $test->curl->url);
 
         // curl -v --request PATCH "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'PATCH', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL, $test->curl->url);
 
         // curl -v --request DELETE "http://127.0.0.1:8000/?foo=bar"
         $test = new Test();
         $test->server('server', 'DELETE', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL . '?' . http_build_query($data), $test->curl->url);
 
         // curl -v --get --request HEAD --head "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'HEAD', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL . '?' . http_build_query($data), $test->curl->url);
 
         // curl -v --get --request OPTIONS "http://127.0.0.1:8000/" --data "foo=bar"
         $test = new Test();
         $test->server('server', 'OPTIONS', $data);
-        $this->assertEquals(Test::TEST_URL, $test->curl->baseUrl);
         $this->assertEquals(Test::TEST_URL . '?' . http_build_query($data), $test->curl->url);
     }
 
@@ -152,49 +147,41 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'delete_with_body');
         $curl->delete($data, array('wibble' => 'wubble'));
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('{"get":{"key":"value"},"delete":{"wibble":"wubble"}}', $curl->rawResponse);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'get');
         $curl->delete($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('key=value', $curl->response);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'get');
         $curl->get($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('key=value', $curl->response);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'get');
         $curl->head($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('HEAD /?key=value HTTP/1.1', $curl->requestHeaders['Request-Line']);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'get');
         $curl->options($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('key=value', $curl->response);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'request_method');
         $curl->patch($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('PATCH', $curl->response);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'post');
         $curl->post($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('key=value', $curl->response);
 
         $curl = new Curl(Test::TEST_URL);
         $curl->setHeader('X-DEBUG-TEST', 'put');
         $curl->put($data);
-        $this->assertEquals(Test::TEST_URL, $curl->baseUrl);
         $this->assertEquals('key=value', $curl->response);
     }
 
@@ -255,6 +242,12 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->curl->setOpt(CURLOPT_FOLLOWLOCATION, true);
         $test->server('redirect', 'GET');
         $this->assertEquals(Test::TEST_URL . '?redirect', $test->curl->effectiveUrl);
+
+        $test = new Test();
+        $test->server('get', 'GET');
+        $this->assertEquals(Test::TEST_URL, $test->curl->effectiveUrl);
+        $test->server('get', 'GET', array('a' => '1', 'b' => '2'));
+        $this->assertEquals(Test::TEST_URL . '?a=1&b=2', $test->curl->effectiveUrl);
     }
 
     public function testPostRequestMethod()
@@ -301,6 +294,15 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals('key=value', $test->server('post', 'POST', array(
             'key' => 'value',
         )));
+    }
+
+    public function testPostDataEmptyJson()
+    {
+        $test = new Test();
+        $test->curl->setHeader('Content-Type', 'application/json');
+        $test->server('post_json', 'POST');
+        $this->assertEquals('', $test->curl->response);
+        $this->assertEquals('', $test->curl->getOpt(CURLOPT_POSTFIELDS));
     }
 
     public function testPostAssociativeArrayData()
@@ -491,6 +493,10 @@ class CurlTest extends \PHPUnit\Framework\TestCase
             $this->markTestSkipped();
         }
 
+        if (getenv('TRAVIS_PHP_VERSION') === 'hhvm-nightly') {
+            $this->markTestSkipped();
+        }
+
         try {
             // Follow 303 redirection with POST
             $test = new Test();
@@ -546,6 +552,28 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals('image/png', $test->curl->response);
     }
 
+    public function testMultipartFormDataContentType()
+    {
+        // Use a PUT request instead of a POST request so the request
+        // multipart/form-data is not automatically parsed and can be tested
+        // against.
+        $test = new Test();
+        $test->curl->setHeader('Content-Type', 'multipart/form-data');
+        $test->server('put', 'PUT', array(
+            'foo' => 'bar',
+        ));
+
+        $this->assertEquals('100-continue', $test->curl->requestHeaders['Expect']);
+        $this->assertStringStartsWith('multipart/form-data; boundary=', $test->curl->requestHeaders['Content-Type']);
+
+        $expected_contains = "\r\n" .
+            'Content-Disposition: form-data; name="foo"' . "\r\n" .
+            "\r\n" .
+            'bar' . "\r\n" .
+            '';
+        $this->assertContains($expected_contains, $test->curl->response);
+    }
+
     public function testPatchRequestMethod()
     {
         $test = new Test();
@@ -592,6 +620,22 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test = new Test();
         $test->server('delete_with_body', 'DELETE', array('foo' => 'bar'), array('wibble' => 'wubble'));
         $this->assertEquals('{"get":{"foo":"bar"},"delete":{"wibble":"wubble"}}', $test->curl->rawResponse);
+    }
+
+    public function testDeleteContentLengthSetWithBody()
+    {
+        $request_body = 'a=1&b=2&c=3';
+        $test = new Test();
+        $test->server('request_method', 'DELETE', array(), $request_body);
+        $this->assertEquals(strlen($request_body), $test->curl->requestHeaders['content-length']);
+    }
+
+    public function testDeleteContentLengthUnsetWithoutBody()
+    {
+        $request_body = array();
+        $test = new Test();
+        $test->server('request_method', 'DELETE', array(), $request_body);
+        $this->assertFalse(isset($test->curl->requestHeaders['content-length']));
     }
 
     public function testHeadRequestMethod()
@@ -780,6 +824,18 @@ class CurlTest extends \PHPUnit\Framework\TestCase
 
         unlink($filename);
         $this->assertFalse(file_exists($filename));
+    }
+
+    public function testDownloadErrorDeleteTemporaryFile()
+    {
+        $destination = \Helper\get_tmp_file_path();
+
+        $test = new Test();
+        $test->curl->setHeader('X-DEBUG-TEST', '404');
+        $test->curl->download(Test::TEST_URL, $destination);
+
+        $this->assertFalse(file_exists($test->curl->getDownloadFileName()));
+        $this->assertFalse(file_exists($destination));
     }
 
     public function testMaxFilesize()
@@ -1098,12 +1154,18 @@ class CurlTest extends \PHPUnit\Framework\TestCase
     public function testError()
     {
         $test = new Test();
-        $test->curl->setOpt(CURLOPT_CONNECTTIMEOUT_MS, 4000);
         $test->curl->get(Test::ERROR_URL);
         $this->assertTrue($test->curl->error);
         $this->assertTrue($test->curl->curlError);
-        $this->assertEquals(CURLE_OPERATION_TIMEOUTED, $test->curl->errorCode);
-        $this->assertEquals(CURLE_OPERATION_TIMEOUTED, $test->curl->curlErrorCode);
+        $possible_errors = array(CURLE_SEND_ERROR, CURLE_OPERATION_TIMEOUTED, CURLE_COULDNT_CONNECT, CURLE_GOT_NOTHING);
+        $this->assertTrue(
+            in_array($test->curl->errorCode, $possible_errors, true),
+            'errorCode: ' . $test->curl->errorCode
+        );
+        $this->assertTrue(
+            in_array($test->curl->curlErrorCode, $possible_errors, true),
+            'curlErrorCode: ' . $test->curl->curlErrorCode
+        );
     }
 
     public function testErrorMessage()
@@ -1370,6 +1432,20 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         }
     }
 
+    /**
+     * @expectedException \ErrorException
+     */
+    public function testJsonEncode()
+    {
+        $data = array(
+            'malformed' => pack('H*', 'c32e'),
+        );
+
+        $test = new Test();
+        $test->curl->setHeader('Content-Type', 'application/json');
+        $test->server('post_json', 'POST', $data);
+    }
+
     public function testJsonDecoderOptions()
     {
         // Implicit default json decoder should return object.
@@ -1395,13 +1471,8 @@ class CurlTest extends \PHPUnit\Framework\TestCase
 
     public function testJsonDecoder()
     {
-        $data = array(
-            'key' => 'Content-Type',
-            'value' => 'application/json',
-        );
-
         $test = new Test();
-        $test->server('json_response', 'POST', $data);
+        $test->server('json_response', 'GET');
         $this->assertTrue(is_object($test->curl->response));
         $this->assertFalse(is_array($test->curl->response));
 
@@ -1409,13 +1480,13 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->curl->setJsonDecoder(function ($response) {
             return json_decode($response, true);
         });
-        $test->server('json_response', 'POST', $data);
+        $test->server('json_response', 'GET');
         $this->assertFalse(is_object($test->curl->response));
         $this->assertTrue(is_array($test->curl->response));
 
         $test = new Test();
         $test->curl->setJsonDecoder(false);
-        $test->server('json_response', 'POST', $data);
+        $test->server('json_response', 'GET');
         $this->assertTrue(is_string($test->curl->response));
     }
 
@@ -2563,7 +2634,76 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         }
     }
 
-    public function testXMLResponse()
+    public function testXmlDecoderOptions()
+    {
+        // Implicit default xml decoder should return object.
+        $test = new Test();
+        $test->server('xml_with_cdata_response', 'GET');
+        $this->assertTrue(is_object($test->curl->response));
+        $this->assertFalse(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
+
+        // Explicit default xml decoder should return object.
+        $test = new Test();
+        $test->curl->setDefaultXmlDecoder();
+        $test->server('xml_with_cdata_response', 'GET');
+        $this->assertTrue(is_object($test->curl->response));
+        $this->assertFalse(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
+
+        // Explicit default xml decoder with options should return value using options as specified.
+        $class_name = 'SimpleXMLElement';
+        $options = LIBXML_NOCDATA;
+        $test = new Test();
+        $test->curl->setDefaultXmlDecoder($class_name, $options);
+        $test->server('xml_with_cdata_response', 'GET');
+        $this->assertTrue(is_object($test->curl->response));
+        $this->assertTrue(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
+    }
+
+    public function testXmlDecoder()
+    {
+        $test = new Test();
+        $test->server('xml_with_cdata_response', 'POST');
+        $this->assertTrue(is_object($test->curl->response));
+        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
+        $this->assertFalse(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
+
+        $test = new Test();
+        $test->curl->setXmlDecoder(function ($response) {
+            return simplexml_load_string($response, 'SimpleXMLElement', LIBXML_NOCDATA);
+        });
+        $test->server('xml_with_cdata_response', 'POST');
+        $this->assertTrue(is_object($test->curl->response));
+        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
+        $this->assertTrue(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
+
+        $test = new Test();
+        $test->curl->setXmlDecoder(false);
+        $test->server('xml_with_cdata_response', 'POST');
+        $this->assertTrue(is_string($test->curl->response));
+    }
+
+    public function testXmlContentTypeDetection()
+    {
+        $xml_content_types = array(
+            'application/atom+xml',
+            'application/rss+xml',
+            'application/soap+xml',
+            'application/xml',
+            'text/xml',
+        );
+
+        $class = new \ReflectionClass('\Curl\Curl');
+        $property = $class->getProperty('xmlPattern');
+        $property->setAccessible(true);
+        $xml_pattern = $property->getValue(new Curl);
+
+        foreach ($xml_content_types as $xml_content_type) {
+            $message = '"' . $xml_content_type . '" does not match pattern ' . $xml_pattern;
+            $this->assertEquals(1, preg_match($xml_pattern, $xml_content_type), $message);
+        }
+    }
+
+    public function testXmlResponse()
     {
         foreach (array(
             'Content-Type',
@@ -2575,6 +2715,9 @@ class CurlTest extends \PHPUnit\Framework\TestCase
                 'application/rss+xml',
                 'application/rss+xml; charset=utf-8',
                 'application/rss+xml;charset=utf-8',
+                'application/soap+xml',
+                'application/soap+xml; charset=utf-8',
+                'application/soap+xml;charset=utf-8',
                 'application/xml',
                 'application/xml; charset=utf-8',
                 'application/xml;charset=utf-8',
@@ -2611,6 +2754,51 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         }
     }
 
+    public function testDefaultDecoder()
+    {
+        // Default.
+        $test = new Test();
+        $test->server('download_file_size', 'GET');
+        $this->assertTrue(is_string($test->curl->response));
+
+        // Callable.
+        $test = new Test();
+        $test->curl->setDefaultDecoder(function ($response) {
+            return '123';
+        });
+        $test->server('download_file_size', 'GET');
+        $this->assertEquals('123', $test->curl->response);
+
+        // "json".
+        $test = new Test();
+        $test->curl->setDefaultDecoder('json');
+        $test->server('json_response', 'POST', array(
+            'key' => 'Content-Type',
+            'value' => 'application/but-not-json',
+        ));
+        $this->assertInstanceOf('stdClass', $test->curl->response);
+
+        // "xml".
+        $test = new Test();
+        $test->curl->setDefaultDecoder('xml');
+        $test->server('xml_response', 'POST', array(
+            'key' => 'Content-Type',
+            'value' => 'text/but-not-xml',
+        ));
+        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
+
+        // False.
+        $test = new Test();
+        $test->curl->setDefaultDecoder('json');
+        $test->curl->setDefaultDecoder(false);
+        $test->server('json_response', 'POST', array(
+            'key' => 'Content-Type',
+            'value' => 'application/but-not-json',
+        ));
+        $this->assertTrue(is_string($test->curl->response));
+    }
+
+
     public function testEmptyResponse()
     {
         $response = "\r\n\r\n";
@@ -2622,6 +2810,25 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $curl = new Curl();
         $response_headers = $reflection_method->invoke($curl, $response);
         $this->assertArrayHasKey('Status-Line', $response_headers);
+    }
+
+    public function testMalformedResponseHeaders()
+    {
+        $response =
+            'HTTP/1.0 403 Forbidden' . "\n" .
+            'Cache-Control: no-cache' . "\n" .
+            'Content-Type: text/html' . "\n" .
+            'Strict-Transport-Security: max-age=0' .
+            "\r\n" .
+            "\n";
+
+        $reflector = new \ReflectionClass('\Curl\Curl');
+        $reflection_method = $reflector->getMethod('parseResponseHeaders');
+        $reflection_method->setAccessible(true);
+
+        $curl = new Curl();
+        $response_headers = $reflection_method->invoke($curl, $response);
+        $this->assertTrue($response_headers instanceof CaseInsensitiveArray);
     }
 
     public function testArrayToStringConversion()
@@ -2818,6 +3025,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('GET', 'DELETE');
         $test->chainRequests('GET', 'HEAD');
         $test->chainRequests('GET', 'OPTIONS');
+        $test->chainRequests('GET', 'GET');
+
+        $test = new Test();
+        $test->chainRequests('GET', 'POST',    array('a' => '1'));
+        $test->chainRequests('GET', 'PUT',     array('b' => '22'));
+        $test->chainRequests('GET', 'PATCH',   array('c' => '333'));
+        $test->chainRequests('GET', 'DELETE',  array('d' => '4444'));
+        $test->chainRequests('GET', 'HEAD',    array('e' => '55555'));
+        $test->chainRequests('GET', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('GET', 'GET',     array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessivePostRequests()
@@ -2829,6 +3046,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('POST', 'DELETE');
         $test->chainRequests('POST', 'HEAD');
         $test->chainRequests('POST', 'OPTIONS');
+        $test->chainRequests('POST', 'POST');
+
+        $test = new Test();
+        $test->chainRequests('POST', 'GET',     array('a' => '1'));
+        $test->chainRequests('POST', 'PUT',     array('b' => '22'));
+        $test->chainRequests('POST', 'PATCH',   array('c' => '333'));
+        $test->chainRequests('POST', 'DELETE',  array('d' => '4444'));
+        $test->chainRequests('POST', 'HEAD',    array('e' => '55555'));
+        $test->chainRequests('POST', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('POST', 'POST',    array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessivePutRequests()
@@ -2840,6 +3067,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('PUT', 'DELETE');
         $test->chainRequests('PUT', 'HEAD');
         $test->chainRequests('PUT', 'OPTIONS');
+        $test->chainRequests('PUT', 'PUT');
+
+        $test = new Test();
+        $test->chainRequests('PUT', 'GET',     array('a' => '1'));
+        $test->chainRequests('PUT', 'POST',    array('b' => '22'));
+        $test->chainRequests('PUT', 'PATCH',   array('c' => '333'));
+        $test->chainRequests('PUT', 'DELETE',  array('d' => '4444'));
+        $test->chainRequests('PUT', 'HEAD',    array('e' => '55555'));
+        $test->chainRequests('PUT', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('PUT', 'PUT',     array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessivePatchRequests()
@@ -2851,6 +3088,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('PATCH', 'DELETE');
         $test->chainRequests('PATCH', 'HEAD');
         $test->chainRequests('PATCH', 'OPTIONS');
+        $test->chainRequests('PATCH', 'PATCH');
+
+        $test = new Test();
+        $test->chainRequests('PATCH', 'GET',     array('a' => '1'));
+        $test->chainRequests('PATCH', 'POST',    array('b' => '22'));
+        $test->chainRequests('PATCH', 'PUT',     array('c' => '333'));
+        $test->chainRequests('PATCH', 'DELETE',  array('d' => '4444'));
+        $test->chainRequests('PATCH', 'HEAD',    array('e' => '55555'));
+        $test->chainRequests('PATCH', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('PATCH', 'PATCH',   array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessiveDeleteRequests()
@@ -2862,6 +3109,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('DELETE', 'PATCH');
         $test->chainRequests('DELETE', 'HEAD');
         $test->chainRequests('DELETE', 'OPTIONS');
+        $test->chainRequests('DELETE', 'DELETE');
+
+        $test = new Test();
+        $test->chainRequests('DELETE', 'GET',     array('a' => '1'));
+        $test->chainRequests('DELETE', 'POST',    array('b' => '22'));
+        $test->chainRequests('DELETE', 'PUT',     array('c' => '333'));
+        $test->chainRequests('DELETE', 'PATCH',   array('d' => '4444'));
+        $test->chainRequests('DELETE', 'HEAD',    array('e' => '55555'));
+        $test->chainRequests('DELETE', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('DELETE', 'DELETE',  array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessiveHeadRequests()
@@ -2873,6 +3130,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('HEAD', 'PATCH');
         $test->chainRequests('HEAD', 'DELETE');
         $test->chainRequests('HEAD', 'OPTIONS');
+        $test->chainRequests('HEAD', 'HEAD');
+
+        $test = new Test();
+        $test->chainRequests('HEAD', 'GET',     array('a' => '1'));
+        $test->chainRequests('HEAD', 'POST',    array('b' => '22'));
+        $test->chainRequests('HEAD', 'PUT',     array('c' => '333'));
+        $test->chainRequests('HEAD', 'PATCH',   array('d' => '4444'));
+        $test->chainRequests('HEAD', 'DELETE',  array('e' => '55555'));
+        $test->chainRequests('HEAD', 'OPTIONS', array('f' => '666666'));
+        $test->chainRequests('HEAD', 'HEAD',    array('g' => '7777777'));
     }
 
     public function testRequestMethodSuccessiveOptionsRequests()
@@ -2884,6 +3151,16 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         $test->chainRequests('OPTIONS', 'PATCH');
         $test->chainRequests('OPTIONS', 'DELETE');
         $test->chainRequests('OPTIONS', 'HEAD');
+        $test->chainRequests('OPTIONS', 'OPTIONS');
+
+        $test = new Test();
+        $test->chainRequests('OPTIONS', 'GET',     array('a' => '1'));
+        $test->chainRequests('OPTIONS', 'POST',    array('b' => '22'));
+        $test->chainRequests('OPTIONS', 'PUT',     array('c' => '333'));
+        $test->chainRequests('OPTIONS', 'PATCH',   array('d' => '4444'));
+        $test->chainRequests('OPTIONS', 'DELETE',  array('e' => '55555'));
+        $test->chainRequests('OPTIONS', 'HEAD',    array('f' => '666666'));
+        $test->chainRequests('OPTIONS', 'OPTIONS', array('g' => '7777777'));
     }
 
     public function testMemoryLeak()
@@ -2902,7 +3179,7 @@ class CurlTest extends \PHPUnit\Framework\TestCase
             }
             echo '{"before":' . memory_get_usage() . ',';
             $curl = new Curl();
-            $curl->close();
+            unset($curl);
             echo '"after":' . memory_get_usage() . '}';
             sleep(1);
         }
@@ -2943,73 +3220,6 @@ class CurlTest extends \PHPUnit\Framework\TestCase
         fclose($buffer);
 
         $this->assertNotEmpty($stderr);
-    }
-
-    public function testXMLDecoder()
-    {
-        $test = new Test();
-        $test->server('xml_with_cdata_response', 'POST');
-        $this->assertTrue(is_object($test->curl->response));
-        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
-        $this->assertFalse(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
-
-        $test = new Test();
-        $test->curl->setXmlDecoder(function ($response) {
-            return simplexml_load_string($response, 'SimpleXMLElement', LIBXML_NOCDATA);
-        });
-        $test->server('xml_with_cdata_response', 'POST');
-        $this->assertTrue(is_object($test->curl->response));
-        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
-        $this->assertTrue(strpos($test->curl->response->saveXML(), '<![CDATA[') === false);
-
-        $test = new Test();
-        $test->curl->setXmlDecoder(false);
-        $test->server('xml_with_cdata_response', 'POST');
-        $this->assertTrue(is_string($test->curl->response));
-    }
-
-    public function testDefaultDecoder()
-    {
-        // Default.
-        $test = new Test();
-        $test->server('download_file_size', 'GET');
-        $this->assertTrue(is_string($test->curl->response));
-
-        // Callable.
-        $test = new Test();
-        $test->curl->setDefaultDecoder(function ($response) {
-            return '123';
-        });
-        $test->server('download_file_size', 'GET');
-        $this->assertEquals('123', $test->curl->response);
-
-        // "json".
-        $test = new Test();
-        $test->curl->setDefaultDecoder('json');
-        $test->server('json_response', 'POST', array(
-            'key' => 'Content-Type',
-            'value' => 'application/but-not-json',
-        ));
-        $this->assertInstanceOf('stdClass', $test->curl->response);
-
-        // "xml".
-        $test = new Test();
-        $test->curl->setDefaultDecoder('xml');
-        $test->server('xml_response', 'POST', array(
-            'key' => 'Content-Type',
-            'value' => 'text/but-not-xml',
-        ));
-        $this->assertInstanceOf('SimpleXMLElement', $test->curl->response);
-
-        // False.
-        $test = new Test();
-        $test->curl->setDefaultDecoder('json');
-        $test->curl->setDefaultDecoder(false);
-        $test->server('json_response', 'POST', array(
-            'key' => 'Content-Type',
-            'value' => 'application/but-not-json',
-        ));
-        $this->assertTrue(is_string($test->curl->response));
     }
 
     public function testTotalTime()
@@ -3397,5 +3607,179 @@ class CurlTest extends \PHPUnit\Framework\TestCase
             $this->assertEquals($expect_attempts, $test->curl->attempts);
             $this->assertEquals($expect_retries, $test->curl->retries);
         }
+    }
+
+    public function testRelativeUrl()
+    {
+        $curl = new Curl(Test::TEST_URL . 'path/');
+        $this->assertEquals('http://127.0.0.1:8000/path/', (string)$curl->url);
+
+        $curl->get('test', array(
+            'a' => '1',
+            'b' => '2',
+        ));
+        $this->assertEquals('http://127.0.0.1:8000/path/test?a=1&b=2', (string)$curl->url);
+
+        $curl->get('/root', array(
+            'c' => '3',
+            'd' => '4',
+        ));
+        $this->assertEquals('http://127.0.0.1:8000/root?c=3&d=4', (string)$curl->url);
+
+        $tests = array(
+            array(
+                'args' => array(
+                    'http://www.example.com/',
+                    '/foo',
+                ),
+                'expected' => 'http://www.example.com/foo',
+            ),
+            array(
+                'args' => array(
+                    'http://www.example.com/',
+                    '/foo/',
+                ),
+                'expected' => 'http://www.example.com/foo/',
+            ),
+            array(
+                'args' => array(
+                    'http://www.example.com/',
+                    '/dir/page.html',
+                ),
+                'expected' => 'http://www.example.com/dir/page.html',
+            ),
+            array(
+                'args' => array(
+                    'http://www.example.com/dir1/page2.html',
+                    '/dir/page.html',
+                ),
+                'expected' => 'http://www.example.com/dir/page.html',
+            ),
+            array(
+                'args' => array(
+                    'http://www.example.com/dir1/page2.html',
+                    'dir/page.html',
+                ),
+                'expected' => 'http://www.example.com/dir1/dir/page.html',
+            ),
+            array(
+                'args' => array(
+                    'http://www.example.com/dir1/dir3/page.html',
+                    '../dir/page.html',
+                ),
+                'expected' => 'http://www.example.com/dir1/dir/page.html',
+            ),
+        );
+        foreach ($tests as $test) {
+            $curl = new Curl($test['args']['0']);
+            $curl->setUrl($test['args']['1']);
+            $this->assertEquals(
+                $test['expected'],
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URLs: '{$test['args']['0']}', '{$test['args']['1']}'"
+            );
+
+            $curl = new Curl($test['args']['0']);
+            $curl->setUrl($test['args']['1'], array('a' => '1', 'b' => '2'));
+            $this->assertEquals(
+                $test['expected'] . '?a=1&b=2',
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URL '{$test['args']['0']}' with parameters a=1, b=2"
+            );
+
+            $curl = new Curl();
+            $curl->setUrl($test['args']['0']);
+            $curl->setUrl($test['args']['1']);
+            $this->assertEquals(
+                $test['expected'],
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URLs: '{$test['args']['0']}', '{$test['args']['1']}'"
+            );
+
+            $curl = new Curl();
+            $curl->setUrl($test['args']['0'], array('a' => '1', 'b' => '2'));
+            $curl->setUrl($test['args']['1']);
+            $this->assertEquals(
+                $test['expected'],
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URL '{$test['args']['0']}' with parameters a=1, b=2 and URL '{$test['args']['1']}'"
+            );
+
+            $curl = new Curl();
+            $curl->setUrl($test['args']['0']);
+            $curl->setUrl($test['args']['1'], array('a' => '1', 'b' => '2'));
+            $this->assertEquals(
+                $test['expected'] . '?a=1&b=2',
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URL '{$test['args']['0']}' and URL '{$test['args']['1']}' with parameters a=1, b=2"
+            );
+
+            $curl = new Curl();
+            $curl->setUrl($test['args']['0'], array('a' => '1', 'b' => '2'));
+            $curl->setUrl($test['args']['1'], array('c' => '3', 'd' => '4'));
+            $this->assertEquals(
+                $test['expected'] . '?c=3&d=4',
+                $curl->getOpt(CURLOPT_URL),
+                "Joint URL '{$test['args']['0']}' with parameters a=1, b=2 " .
+                "and URL '{$test['args']['1']}' with parameters c=3, d=4"
+            );
+        }
+    }
+
+    public function testReset()
+    {
+        $test = new Test();
+
+        $original_user_agent = $test->server('server', 'GET', array('key' => 'HTTP_USER_AGENT'));
+        $this->assertNotEquals('New agent', $original_user_agent);
+
+        $test->curl->setUserAgent('New agent');
+        $user_agent = $test->server('server', 'GET', array('key' => 'HTTP_USER_AGENT'));
+        $this->assertEquals('New agent', $user_agent);
+
+        $test->curl->reset();
+        $user_agent = $test->server('server', 'GET', array('key' => 'HTTP_USER_AGENT'));
+        $this->assertEquals($original_user_agent, $user_agent);
+    }
+
+    public function testMock()
+    {
+        $curl = $this->getMockBuilder('Curl\Curl')
+                     ->getMock();
+
+        $curl->expects($this->once())
+             ->method('getRawResponse')
+             ->will($this->returnValue('[]'));
+
+        $this->assertEquals('[]', $curl->getRawResponse());
+    }
+
+    public function testProxySettings()
+    {
+        $curl = new Curl();
+        $curl->setProxy('proxy.example.com', '1080', 'username', 'password');
+
+        $this->assertEquals('proxy.example.com', $curl->getOpt(CURLOPT_PROXY));
+        $this->assertEquals('1080', $curl->getOpt(CURLOPT_PROXYPORT));
+        $this->assertEquals('username:password', $curl->getOpt(CURLOPT_PROXYUSERPWD));
+
+        $curl->unsetProxy();
+        $this->assertNull($curl->getOpt(CURLOPT_PROXY));
+    }
+
+    public function testJsonSerializable()
+    {
+        if (!interface_exists('JsonSerializable')) {
+            $this->markTestSkipped();
+        }
+
+        $expected_response = '{"name":"Alice","email":"alice@example.com"}';
+
+        $user = new \Helper\User('Alice', 'alice@example.com');
+        $this->assertEquals($expected_response, json_encode($user));
+
+        $test = new Test();
+        $test->curl->setHeader('Content-Type', 'application/json');
+        $this->assertEquals($expected_response, $test->server('post_json', 'POST', $user));
     }
 }

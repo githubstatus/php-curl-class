@@ -1,4 +1,6 @@
 <?php
+// Prevent direct access unless testing.
+getenv('PHP_CURL_CLASS_TEST_MODE_ENABLED') === 'yes' || exit;
 
 require_once 'ContentRangeServer.php';
 require_once 'RangeHeader.php';
@@ -345,6 +347,10 @@ if ($test === 'http_basic_auth') {
     header('HTTP/1.1 202 Accepted');
     echo '202 Accepted';
     echo ' (remaining failures: ' . $_SESSION['failures_remaining'] . ')';
+    exit;
+} elseif ($test === '404') {
+    header('HTTP/1.1 404 Not Found');
+    echo '404 Not Found';
     exit;
 }
 
